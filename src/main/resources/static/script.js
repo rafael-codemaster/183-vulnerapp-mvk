@@ -16,7 +16,7 @@ function onLoginSubmit(event) {
   const username = event.target[0].value;
   const password = event.target[1].value;
   event.preventDefault();
-  fetch("/api/user/fakelogin", {
+  fetch("/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -31,8 +31,9 @@ function onLoginSubmit(event) {
 
 function onLogoutSubmit(event) {
   event.preventDefault();
-  window.sessionStorage.removeItem("fullname");
-  loginCheck();
+  fetch("/logout", { method: "POST" })
+      .then(() => window.sessionStorage.removeItem("fullname"))
+      .then(() => loginCheck());
 }
 
 function onBlogSubmit(event) {
