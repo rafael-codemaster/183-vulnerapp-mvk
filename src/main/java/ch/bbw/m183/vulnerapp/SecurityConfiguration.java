@@ -1,55 +1,106 @@
 package ch.bbw.m183.vulnerapp;
 
-import java.util.List;
-
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.factory.PasswordEncoderFactories;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.SecurityFilterChain;
+import java.io.IOException;
 
 import ch.bbw.m183.vulnerapp.repository.UserRepository;
 import ch.bbw.m183.vulnerapp.service.RestfulFormService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
+@RequiredArgsConstructor
 public class SecurityConfiguration {
+
+	private final RestfulFormService restfulFormService;
 
 	@Bean
 	public UserDetailsService userDetailsService(UserRepository userRepository) {
 		return username -> userRepository.findById(username)
-			.map(x -> new User(
-				x.getUsername(),
-				"{noop}" + x.getPassword(),
-				List.of()
-			))
-			.orElseThrow();
+			.map(user -> User.withUsername(user.getUsername())
+				.password(user.getPassword())
+				.roles(user.getRole())
+				.build())
+			.orElseThrow(() -> new UsernameNotFoundException("invalid credentials"));
 	}
 
 	@Bean
 	public PasswordEncoder passwordEncoder() {
-		return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+		return new BCryptPasswordEncoder();
 	}
 
 	@Bean
-	public SecurityFilterChain filterChain(HttpSecurity http, RestfulFormService restfulFormService) throws Exception {
+	public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
 		return http
-			.csrf(csrf -> csrf.disable())
+			.csrf(csrf -> csrf
+				.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+				.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler()))
+			.addFilterAfter(new OncePerRequestFilter() {
+				@Override
+				protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain) throws ServletException, IOException {
+					CsrfToken token = (CsrfToken) req.getAttribute(CsrfToken.class.getName());
+					if (token != null) {
+						token.getToken();
+					}
+					chain.doFilter(req, res);
+				}
+			}, BasicAuthenticationFilter.class)
+			.sessionManagement(session -> session
+				.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+				.sessionFixation(fix -> fix.migrateSession())
+				.maximumSessions(1))
+			.headers(headers -> headers
+				.contentSecurityPolicy(csp -> csp.policyDirectives(
+					"default-src 'self'; "
+						+ "script-src 'self' https://cdn.jsdelivr.net; "
+						+ "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+						+ "img-src 'self' https://icons.getbootstrap.com data:; "
+						+ "object-src 'none'; "
+						+ "base-uri 'self'; "
+						+ "frame-ancestors 'none'"))
+				.referrerPolicy(ref -> ref.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+				.frameOptions(frame -> frame.deny()))
 			.authorizeHttpRequests(requests -> requests
-				.requestMatchers("/", "/index.html", "/script.js", "/robots.txt").permitAll()
-				.requestMatchers(HttpMethod.POST, "/login", "/logout").permitAll()
+				.requestMatchers("/", "/index.html", "/script.js", "/favicon.ico", "/robots.txt").permitAll()
 				.requestMatchers(HttpMethod.GET, "/api/blog").permitAll()
-				.requestMatchers(HttpMethod.GET, "/api/blog/health").permitAll()
-				.requestMatchers("/api/**").authenticated()
+				.requestMatchers(EndpointRequest.to("health")).permitAll()
+				.requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ADMIN")
+				.requestMatchers("/api/admin/**").hasRole("ADMIN")
+				.requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+				.requestMatchers(HttpMethod.POST, "/api/blog").hasAnyRole("USER", "ADMIN")
 				.anyRequest().authenticated()
 			)
 			.formLogin(restfulFormService.restfulFormLogin())
 			.exceptionHandling(restfulFormService.unauthorizedPerDefault())
+			.logout(logout -> logout
+				.logoutUrl("/logout")
+				.invalidateHttpSession(true)
+				.deleteCookies("JSESSIONID", "XSRF-TOKEN")
+				.logoutSuccessHandler((req, res, auth) -> res.setStatus(HttpServletResponse.SC_NO_CONTENT)))
 			.build();
 	}
 }

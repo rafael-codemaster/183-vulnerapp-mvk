@@ -24,7 +24,10 @@ logging:
     org.springframework.security.web.csrf: DEBUG
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
 management:
+  endpoint:
+    health:
+      show-details: never
   endpoints:
     web:
       exposure:
-        include: '*'
+        include: health

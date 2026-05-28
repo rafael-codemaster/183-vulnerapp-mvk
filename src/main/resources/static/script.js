@@ -16,10 +16,12 @@ function onLoginSubmit(event) {
   const username = event.target[0].value;
   const password = event.target[1].value;
   event.preventDefault();
+  const csrfToken = getCookie("XSRF-TOKEN");
   fetch("/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
+      "X-XSRF-TOKEN": csrfToken,
     },
     body: new URLSearchParams({username, password}),
   })
@@ -31,7 +33,11 @@ function onLoginSubmit(event) {
 
 function onLogoutSubmit(event) {
   event.preventDefault();
-  fetch("/logout", { method: "POST" })
+  const csrfToken = getCookie("XSRF-TOKEN");
+  fetch("/logout", {
+    method: "POST",
+    headers: { "X-XSRF-TOKEN": csrfToken },
+  })
       .then(() => window.sessionStorage.removeItem("fullname"))
       .then(() => loginCheck());
 }
@@ -39,10 +45,12 @@ function onLogoutSubmit(event) {
 function onBlogSubmit(event) {
   const data = {"title": event.target[0].value, "body": event.target[1].value};
   event.preventDefault();
+  const csrfToken = getCookie("XSRF-TOKEN");
   fetch("/api/blog", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "X-XSRF-TOKEN": csrfToken,
     },
     body: JSON.stringify(data),
   })
@@ -71,10 +79,29 @@ function renderBlogs(blogs) {
   const blogDiv = document.getElementById("blog-container");
   blogDiv.innerHTML = "" // clear
   for (const blog of blogs) {
-    blogDiv.innerHTML += `<h2>${blog.title}</h2>
-            <p>${blog.createdAt}</p>
-            <p>${blog.body}</p>`;
+    const titleEl = document.createElement("h2");
+    titleEl.textContent = blog.title;
+    const dateEl = document.createElement("p");
+    dateEl.textContent = blog.createdAt;
+    const bodyEl = document.createElement("p");
+    bodyEl.textContent = blog.body;
+
+    blogDiv.appendChild(titleEl);
+    blogDiv.appendChild(dateEl);
+    blogDiv.appendChild(bodyEl);
   }
+}
+
+function getCookie(name) {
+  const encodedName = encodeURIComponent(name) + "=";
+  const parts = document.cookie.split(";");
+  for (const part of parts) {
+    const c = part.trim();
+    if (c.startsWith(encodedName)) {
+      return decodeURIComponent(c.substring(encodedName.length));
+    }
+  }
+  return "";
 }
 
 function showDevError(message) {

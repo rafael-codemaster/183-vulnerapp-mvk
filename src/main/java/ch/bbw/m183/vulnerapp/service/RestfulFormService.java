@@ -21,11 +21,11 @@ public class RestfulFormService {
 	private final ObjectMapper objectMapper;
 
 	public Customizer<FormLoginConfigurer<HttpSecurity>> restfulFormLogin() {
-		return form -> form.failureHandler((req, res, ex) -> res.sendError(HttpServletResponse.SC_FORBIDDEN, ex.getMessage()))
+		return form -> form.failureHandler((req, res, ex) -> res.sendError(HttpServletResponse.SC_UNAUTHORIZED))
 			.successHandler((request, response, auth) -> {
-				UserEntity user = userService.whoami(auth.getName());
 				response.setStatus(HttpServletResponse.SC_OK);
 				response.setContentType("application/json");
+				UserEntity user = userService.whoami(auth.getName());
 				response.getWriter().write(objectMapper.writeValueAsString(user));
 			});
 	}
